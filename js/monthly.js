@@ -3,13 +3,22 @@ import {
   getHabits, addHabit, toggleHabitDate, deleteHabit,
 } from './state.js';
 
-function monthKey() {
+let monthOffset = 0;
+let selectedHabitDay = null;
+
+function getMonthDate(offset) {
   const d = new Date();
+  d.setMonth(d.getMonth() + offset);
+  return d;
+}
+
+function monthKey(offset) {
+  const d = getMonthDate(offset);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
-function monthLabel() {
-  const d = new Date();
+function monthLabel(offset) {
+  const d = getMonthDate(offset);
   const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
     'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   return months[d.getMonth()] + ' ' + d.getFullYear();
@@ -28,32 +37,71 @@ function padDate(d) {
 }
 
 function renderMonthlyPlan(container) {
-  const key = monthKey();
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const key = monthKey(monthOffset);
+  const d = getMonthDate(monthOffset);
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
   const totalDays = daysInMonth(year, month);
   const startDow = firstWeekday(year, month);
+
+  if (!selectedHabitDay) {
+    selectedHabitDay = key + '-' + padDate(d.getDate() > totalDays ? totalDays : d.getDate());
+  }
 
   container.innerHTML = '';
 
   const header = document.createElement('header');
-  header.className = 'dashboard-header';
-  header.innerHTML = '<h1>План месяца</h1>';
+  header.className = 'dashboard-header monthly-header';
+
+  const nav = document.createElement('div');
+  nav.className = 'month-nav';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'month-nav-btn';
+  prevBtn.textContent = '◀';
+  prevBtn.addEventListener('click', () => {
+    monthOffset--;
+    selectedHabitDay = null;
+    renderMonthlyPlan(container);
+  });
+  nav.appendChild(prevBtn);
+
+  const label = document.createElement('h1');
+  label.textContent = monthLabel(monthOffset);
+  nav.appendChild(label);
+
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'month-nav-btn';
+  nextBtn.textContent = '▶';
+  nextBtn.addEventListener('click', () => {
+    monthOffset++;
+    selectedHabitDay = null;
+    renderMonthlyPlan(container);
+  });
+  nav.appendChild(nextBtn);
+
+  header.appendChild(nav);
   container.appendChild(header);
 
   const layout = document.createElement('div');
   layout.className = 'monthly-layout';
 
-  /* ── Goals section ── */
+  renderGoalsSection(layout, key);
+  renderHabitsSection(layout, key, year, month, totalDays, startDow);
 
-  const goalsSection = document.createElement('section');
-  goalsSection.className = 'monthly-section monthly-goals-section';
+  container.appendChild(layout);
+}
 
-  const goalsTitle = document.createElement('h2');
-  goalsTitle.className = 'section-title';
-  goalsTitle.textContent = 'Цели на ' + monthLabel();
-  goalsSection.appendChild(goalsTitle);
+/* ── Goals ── */
+
+function renderGoalsSection(container, key) {
+  const section = document.createElement('section');
+  section.className = 'monthly-section monthly-goals-section';
+
+  const title = document.createElement('h2');
+  title.className = 'section-title';
+  title.textContent = 'Цели на месяц';
+  section.appendChild(title);
 
   const goalsList = document.createElement('div');
   goalsList.className = 'goals-list';
@@ -72,7 +120,7 @@ function renderMonthlyPlan(container) {
     radio.addEventListener('change', () => {
       if (radio.checked) {
         updateMonthlyGoal(goal.id, { isMainGoal: true });
-        renderMonthlyPlan(container);
+        renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
       }
     });
     row.appendChild(radio);
@@ -94,146 +142,189 @@ function renderMonthlyPlan(container) {
     delBtn.textContent = '✕';
     delBtn.addEventListener('click', () => {
       deleteMonthlyGoal(goal.id);
-      renderMonthlyPlan(container);
+      renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
     });
     row.appendChild(delBtn);
 
     goalsList.appendChild(row);
   });
 
-  goalsSection.appendChild(goalsList);
+  section.appendChild(goalsList);
 
-  const addGoalForm = document.createElement('form');
-  addGoalForm.className = 'goal-add-form';
-  addGoalForm.noValidate = true;
+  const addForm = document.createElement('form');
+  addForm.className = 'goal-add-form';
+  addForm.noValidate = true;
 
-  const goalInput = document.createElement('input');
-  goalInput.type = 'text';
-  goalInput.className = 'form-input';
-  goalInput.placeholder = 'Новая цель на месяц...';
-  goalInput.required = true;
-  goalInput.maxLength = 200;
-  addGoalForm.appendChild(goalInput);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'form-input';
+  input.placeholder = 'Новая цель...';
+  input.required = true;
+  input.maxLength = 200;
+  addForm.appendChild(input);
 
-  const goalAddBtn = document.createElement('button');
-  goalAddBtn.type = 'submit';
-  goalAddBtn.className = 'btn btn-primary btn-sm';
-  goalAddBtn.textContent = 'Добавить';
-  addGoalForm.appendChild(goalAddBtn);
+  const addBtn = document.createElement('button');
+  addBtn.type = 'submit';
+  addBtn.className = 'btn btn-primary btn-sm';
+  addBtn.textContent = 'Добавить';
+  addForm.appendChild(addBtn);
 
-  addGoalForm.addEventListener('submit', (e) => {
+  addForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const val = goalInput.value.trim();
+    const val = input.value.trim();
     if (!val) return;
     const isFirst = goals.length === 0;
     addMonthlyGoal({ title: val, month: key, isMainGoal: isFirst });
-    renderMonthlyPlan(container);
+    renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
   });
 
-  goalsSection.appendChild(addGoalForm);
-  layout.appendChild(goalsSection);
+  section.appendChild(addForm);
+  container.appendChild(section);
+}
 
-  /* ── Habits section ── */
+/* ── Habits ── */
 
-  const habitsSection = document.createElement('section');
-  habitsSection.className = 'monthly-section monthly-habits-section';
+function renderHabitsSection(container, key, year, month, totalDays, startDow) {
+  const section = document.createElement('section');
+  section.className = 'monthly-section monthly-habits-section';
 
-  const habitsTitle = document.createElement('h2');
-  habitsTitle.className = 'section-title';
-  habitsTitle.textContent = 'Трекер привычек';
-  habitsSection.appendChild(habitsTitle);
+  const title = document.createElement('h2');
+  title.className = 'section-title';
+  title.textContent = 'Трекер привычек';
+  section.appendChild(title);
 
   const habits = getHabits(key);
 
-  habits.forEach((habit) => {
-    const block = document.createElement('div');
-    block.className = 'habit-block';
+  /* ── Calendar ── */
 
-    const top = document.createElement('div');
-    top.className = 'habit-top';
+  const calendar = document.createElement('div');
+  calendar.className = 'habit-calendar';
 
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'habit-name';
-    nameSpan.textContent = habit.name;
-    top.appendChild(nameSpan);
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'btn btn-sm btn-delete';
-    delBtn.textContent = 'Удалить';
-    delBtn.addEventListener('click', () => {
-      deleteHabit(habit.id);
-      renderMonthlyPlan(container);
-    });
-    top.appendChild(delBtn);
-
-    block.appendChild(top);
-
-    const grid = document.createElement('div');
-    grid.className = 'habit-grid';
-
-    const dayLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-    dayLabels.forEach((dl) => {
-      const lbl = document.createElement('span');
-      lbl.className = 'habit-grid-dow';
-      lbl.textContent = dl;
-      grid.appendChild(lbl);
-    });
-
-    for (let i = 0; i < startDow; i++) {
-      const empty = document.createElement('span');
-      empty.className = 'habit-grid-empty';
-      grid.appendChild(empty);
-    }
-
-    for (let d = 1; d <= totalDays; d++) {
-      const dateStr = key + '-' + padDate(d);
-      const cell = document.createElement('span');
-      cell.className = 'habit-day';
-      const isComplete = habit.completedDates.includes(dateStr);
-      if (isComplete) cell.classList.add('habit-day-done');
-      cell.textContent = d;
-      cell.dataset.date = dateStr;
-      cell.addEventListener('click', () => {
-        toggleHabitDate(habit.id, dateStr);
-        cell.classList.toggle('habit-day-done');
-      });
-      grid.appendChild(cell);
-    }
-
-    block.appendChild(grid);
-    habitsSection.appendChild(block);
+  const dayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  dayLabels.forEach((dl) => {
+    const lbl = document.createElement('span');
+    lbl.className = 'habit-cal-dow';
+    lbl.textContent = dl;
+    calendar.appendChild(lbl);
   });
 
-  const addHabitForm = document.createElement('form');
-  addHabitForm.className = 'habit-add-form';
-  addHabitForm.noValidate = true;
+  const sunStart = startDow === 0 ? 6 : startDow - 1;
+  for (let i = 0; i < sunStart; i++) {
+    const empty = document.createElement('span');
+    empty.className = 'habit-cal-empty';
+    calendar.appendChild(empty);
+  }
 
-  const habitInput = document.createElement('input');
-  habitInput.type = 'text';
-  habitInput.className = 'form-input';
-  habitInput.placeholder = 'Новая привычка...';
-  habitInput.required = true;
-  habitInput.maxLength = 200;
-  addHabitForm.appendChild(habitInput);
+  for (let d = 1; d <= totalDays; d++) {
+    const dateStr = key + '-' + padDate(d);
+    const cell = document.createElement('span');
+    cell.className = 'habit-cal-day';
+    if (dateStr === selectedHabitDay) cell.classList.add('habit-cal-day-active');
+    if (habits.length > 0) {
+      const allDone = habits.every((h) => h.completedDates.includes(dateStr));
+      const someDone = habits.some((h) => h.completedDates.includes(dateStr));
+      if (allDone) cell.classList.add('habit-cal-day-all');
+      else if (someDone) cell.classList.add('habit-cal-day-some');
+    }
+    cell.textContent = d;
+    cell.dataset.date = dateStr;
+    cell.addEventListener('click', () => {
+      selectedHabitDay = dateStr;
+      renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
+    });
+    calendar.appendChild(cell);
+  }
 
-  const habitAddBtn = document.createElement('button');
-  habitAddBtn.type = 'submit';
-  habitAddBtn.className = 'btn btn-primary btn-sm';
-  habitAddBtn.textContent = 'Добавить';
-  addHabitForm.appendChild(habitAddBtn);
+  section.appendChild(calendar);
 
-  addHabitForm.addEventListener('submit', (e) => {
+  /* ── Habit list for selected day ── */
+
+  if (habits.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'habit-empty';
+    empty.textContent = 'Добавьте привычку, чтобы начать отслеживание.';
+    section.appendChild(empty);
+  } else {
+    const dayInfo = document.createElement('div');
+    dayInfo.className = 'habit-day-info';
+    dayInfo.textContent = selectedHabitDay ? `Отметки на ${selectedHabitDay}` : 'Выберите день в календаре';
+    section.appendChild(dayInfo);
+
+    const list = document.createElement('div');
+    list.className = 'habit-check-list';
+
+    habits.forEach((habit) => {
+      const row = document.createElement('div');
+      row.className = 'habit-check-row';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'habit-checkbox';
+      cb.checked = selectedHabitDay ? habit.completedDates.includes(selectedHabitDay) : false;
+      cb.addEventListener('change', () => {
+        if (selectedHabitDay) {
+          toggleHabitDate(habit.id, selectedHabitDay);
+          renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
+        }
+      });
+      row.appendChild(cb);
+
+      const name = document.createElement('span');
+      name.className = 'habit-check-name';
+      name.textContent = habit.name;
+      row.appendChild(name);
+
+      const streak = document.createElement('span');
+      streak.className = 'habit-check-streak';
+      const doneCount = habit.completedDates.filter((dt) => dt.startsWith(key)).length;
+      streak.textContent = `${doneCount}/${totalDays}`;
+      row.appendChild(streak);
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-sm btn-delete';
+      delBtn.textContent = '✕';
+      delBtn.addEventListener('click', () => {
+        deleteHabit(habit.id);
+        renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
+      });
+      row.appendChild(delBtn);
+
+      list.appendChild(row);
+    });
+
+    section.appendChild(list);
+  }
+
+  /* ── Add habit form ── */
+
+  const addForm = document.createElement('form');
+  addForm.className = 'habit-add-form';
+  addForm.noValidate = true;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'form-input';
+  input.placeholder = 'Новая привычка...';
+  input.required = true;
+  input.maxLength = 200;
+  addForm.appendChild(input);
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'submit';
+  addBtn.className = 'btn btn-primary btn-sm';
+  addBtn.textContent = 'Добавить';
+  addForm.appendChild(addBtn);
+
+  addForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const val = habitInput.value.trim();
+    const val = input.value.trim();
     if (!val) return;
     addHabit({ name: val, month: key });
-    renderMonthlyPlan(container);
+    renderMonthlyPlan(container.closest('.app-content') || container.parentElement);
   });
 
-  habitsSection.appendChild(addHabitForm);
-  layout.appendChild(habitsSection);
-
-  container.appendChild(layout);
+  section.appendChild(addForm);
+  container.appendChild(section);
 }
 
 export { renderMonthlyPlan };

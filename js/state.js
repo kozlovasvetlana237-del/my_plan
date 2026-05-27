@@ -244,10 +244,18 @@ function addCategory(name, color) {
   return cat;
 }
 
+function updateCategory(id, data) {
+  const cat = state.categories.find((c) => c.id === id);
+  if (!cat) return null;
+  if (data.name !== undefined) cat.name = data.name.trim();
+  if (data.color !== undefined) cat.color = data.color;
+  saveState();
+  return cat;
+}
+
 function deleteCategory(id) {
   const cat = state.categories.find((c) => c.id === id);
   if (!cat) return 'Категория не найдена.';
-  if (cat.system) return 'Системные категории нельзя удалять.';
   if (state.tasks.some((t) => t.categoryId === id)) return 'Нельзя удалить категорию, к которой привязаны задачи.';
   state.categories = state.categories.filter((c) => c.id !== id);
   saveState();
@@ -302,5 +310,5 @@ export {
   getBalanceState, setBalanceState, getBalanceEntries, saveBalanceEntry,
   getMonthlyGoals, addMonthlyGoal, updateMonthlyGoal, deleteMonthlyGoal,
   getHabits, addHabit, toggleHabitDate, deleteHabit,
-  addCategory, deleteCategory, exportData, importData, replaceState,
+  addCategory, updateCategory, deleteCategory, exportData, importData, replaceState,
 };

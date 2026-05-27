@@ -1,5 +1,5 @@
 import {
-  getCategories, addCategory, deleteCategory,
+  getCategories, addCategory, updateCategory, deleteCategory,
   exportData, importData,
 } from './state.js';
 
@@ -14,15 +14,22 @@ function renderSettings(container) {
   const layout = document.createElement('div');
   layout.className = 'settings-layout';
 
-  /* ── Categories section ── */
+  renderCategorySection(layout, container);
+  renderExportImport(layout);
 
-  const catSection = document.createElement('section');
-  catSection.className = 'settings-section';
+  container.appendChild(layout);
+}
 
-  const catTitle = document.createElement('h2');
-  catTitle.className = 'section-title';
-  catTitle.textContent = 'Категории';
-  catSection.appendChild(catTitle);
+/* ── Categories ── */
+
+function renderCategorySection(container, outerContainer) {
+  const section = document.createElement('section');
+  section.className = 'settings-section';
+
+  const title = document.createElement('h2');
+  title.className = 'section-title';
+  title.textContent = 'Категории';
+  section.appendChild(title);
 
   const catList = document.createElement('div');
   catList.className = 'settings-cat-list';
@@ -37,17 +44,15 @@ function renderSettings(container) {
     dot.style.background = cat.color;
     row.appendChild(dot);
 
-    const name = document.createElement('span');
-    name.className = 'settings-cat-name';
-    name.textContent = cat.name;
-    row.appendChild(name);
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'settings-cat-name';
+    nameSpan.textContent = cat.name;
+    row.appendChild(nameSpan);
 
-    if (cat.system) {
-      const badge = document.createElement('span');
-      badge.className = 'settings-cat-badge';
-      badge.textContent = 'системная';
-      row.appendChild(badge);
-    }
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-sm btn-edit';
+    editBtn.textContent = 'Ред';
+    row.appendChild(editBtn);
 
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm btn-delete';
@@ -55,17 +60,58 @@ function renderSettings(container) {
     delBtn.addEventListener('click', () => {
       const err = deleteCategory(cat.id);
       if (err) {
-        showError(catSection, err);
+        showError(section, err);
       } else {
-        renderSettings(container);
+        renderSettings(outerContainer);
       }
     });
     row.appendChild(delBtn);
 
+    editBtn.addEventListener('click', () => {
+      row.innerHTML = '';
+
+      const dotEdit = document.createElement('span');
+      dotEdit.className = 'settings-cat-dot';
+      dotEdit.style.background = cat.color;
+      row.appendChild(dotEdit);
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'form-input form-input-sm';
+      nameInput.value = cat.name;
+      nameInput.maxLength = 60;
+      row.appendChild(nameInput);
+
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.className = 'settings-color-input';
+      colorInput.value = cat.color;
+      row.appendChild(colorInput);
+
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn btn-sm btn-primary';
+      saveBtn.textContent = 'Сохранить';
+      saveBtn.addEventListener('click', () => {
+        const val = nameInput.value.trim();
+        if (!val) return;
+        updateCategory(cat.id, { name: val, color: colorInput.value });
+        renderSettings(outerContainer);
+      });
+      row.appendChild(saveBtn);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-sm btn-cancel';
+      cancelBtn.textContent = 'Отмена';
+      cancelBtn.addEventListener('click', () => {
+        renderSettings(outerContainer);
+      });
+      row.appendChild(cancelBtn);
+    });
+
     catList.appendChild(row);
   });
 
-  catSection.appendChild(catList);
+  section.appendChild(catList);
 
   const addForm = document.createElement('form');
   addForm.className = 'settings-cat-add';
@@ -74,7 +120,7 @@ function renderSettings(container) {
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
   nameInput.className = 'form-input';
-  nameInput.placeholder = 'Название категории...';
+  nameInput.placeholder = 'Новая категория...';
   nameInput.required = true;
   nameInput.maxLength = 60;
   addForm.appendChild(nameInput);
@@ -96,26 +142,28 @@ function renderSettings(container) {
     const val = nameInput.value.trim();
     if (!val) return;
     addCategory(val, colorInput.value);
-    renderSettings(container);
+    renderSettings(outerContainer);
   });
 
-  catSection.appendChild(addForm);
-  layout.appendChild(catSection);
+  section.appendChild(addForm);
+  container.appendChild(section);
+}
 
-  /* ── Export / Import section ── */
+/* ── Export / Import ── */
 
-  const ioSection = document.createElement('section');
-  ioSection.className = 'settings-section';
+function renderExportImport(container) {
+  const section = document.createElement('section');
+  section.className = 'settings-section';
 
-  const ioTitle = document.createElement('h2');
-  ioTitle.className = 'section-title';
-  ioTitle.textContent = 'Экспорт / Импорт';
-  ioSection.appendChild(ioTitle);
+  const title = document.createElement('h2');
+  title.className = 'section-title';
+  title.textContent = 'Экспорт / Импорт';
+  section.appendChild(title);
 
-  const ioDesc = document.createElement('p');
-  ioDesc.className = 'settings-desc';
-  ioDesc.textContent = 'Сохраните резервную копию всех данных или восстановите из ранее сохранённого файла.';
-  ioSection.appendChild(ioDesc);
+  const desc = document.createElement('p');
+  desc.className = 'settings-desc';
+  desc.textContent = 'Сохраните резервную копию или восстановите данные.';
+  section.appendChild(desc);
 
   const btnRow = document.createElement('div');
   btnRow.className = 'settings-btn-row';
@@ -123,9 +171,7 @@ function renderSettings(container) {
   const exportBtn = document.createElement('button');
   exportBtn.className = 'btn btn-primary';
   exportBtn.textContent = 'Скачать JSON';
-  exportBtn.addEventListener('click', () => {
-    exportData();
-  });
+  exportBtn.addEventListener('click', () => exportData());
   btnRow.appendChild(exportBtn);
 
   const importLabel = document.createElement('label');
@@ -142,7 +188,7 @@ function renderSettings(container) {
     reader.onload = (ev) => {
       const err = importData(ev.target.result);
       if (err) {
-        showError(ioSection, err);
+        showError(section, err);
       } else {
         window.location.reload();
       }
@@ -153,10 +199,8 @@ function renderSettings(container) {
   importLabel.appendChild(fileInput);
   btnRow.appendChild(importLabel);
 
-  ioSection.appendChild(btnRow);
-  layout.appendChild(ioSection);
-
-  container.appendChild(layout);
+  section.appendChild(btnRow);
+  container.appendChild(section);
 }
 
 function showError(section, msg) {

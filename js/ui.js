@@ -9,6 +9,9 @@ let filterPriority = '';
 let filterOverdueOnly = false;
 let filterHideCompleted = false;
 
+let weekOffset = 0;
+let selectedDayDate = null;
+
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 
 function getFilters() {
@@ -72,10 +75,15 @@ function getWeekDates(offset = 0) {
     const dateStr = `${y}-${m}-${day}`;
     const dayIndex = d.getDay();
     const nameIndex = dayIndex === 0 ? 6 : dayIndex - 1;
-    const display = `${DAY_NAMES_SHORT[nameIndex]} ${day}.${m}`;
-    result.push({ dateStr, dayName: DAY_NAMES[nameIndex], shortLabel: display });
+    const display = `${day}.${m}`;
+    result.push({ dateStr, dayName: DAY_NAMES[nameIndex], shortLabel: display, fullDate: d });
   }
   return result;
+}
+
+function weekLabel(offset) {
+  const dates = getWeekDates(offset);
+  return `${dates[0].shortLabel} — ${dates[6].shortLabel}`;
 }
 
 function isBeforeToday(dateStr) {
@@ -86,115 +94,154 @@ function isOverdue(task) {
   return task.date && isBeforeToday(task.date) && task.status !== 'completed';
 }
 
-/* ── Main render ── */
-
 function renderDashboard(container) {
   container.innerHTML = '';
+  editingTaskId = null;
+
+  if (!selectedDayDate) selectedDayDate = todayStr();
 
   const header = document.createElement('header');
   header.className = 'dashboard-header';
   header.innerHTML = '<h1>Планировщик задач</h1>';
   container.appendChild(header);
 
-  const grid = document.createElement('div');
-  grid.className = 'dashboard-grid';
-  container.appendChild(grid);
+  const layout = document.createElement('div');
+  layout.className = 'dashboard-layout';
 
-  renderTaskForm(grid);
-  renderFilterPanel(grid);
-  renderStatsSection(grid);
-  renderOverdueSection(grid);
-  renderWeekColumns(grid);
-  renderCategorySection(grid);
+  renderSidebar(layout);
+  renderMainContent(layout);
+
+  container.appendChild(layout);
 }
 
-/* ── Form ── */
+/* ── Sidebar ── */
 
-function renderTaskForm(container) {
+function renderSidebar(container) {
+  const sidebar = document.createElement('aside');
+  sidebar.className = 'sidebar';
+
+  renderCompactForm(sidebar);
+  renderWeekNav(sidebar);
+  renderDayList(sidebar);
+
+  container.appendChild(sidebar);
+}
+
+/* ── Compact form ── */
+
+function renderCompactForm(container) {
   const section = document.createElement('section');
-  section.className = 'task-form-section';
+  section.className = 'sidebar-form-section';
+
+  const toggle = document.createElement('button');
+  toggle.className = 'sidebar-form-toggle';
+  toggle.textContent = '✕ Новая задача';
+  section.appendChild(toggle);
+
+  const formWrap = document.createElement('div');
+  formWrap.className = 'sidebar-form-wrap';
+  formWrap.style.display = 'none';
 
   const form = document.createElement('form');
-  form.className = 'task-form';
+  form.className = 'task-form-compact';
   form.id = 'task-form';
   form.noValidate = true;
 
-  const fields = [
-    { tag: 'input', name: 'title', type: 'text', label: 'Название', required: true, maxLength: 120, placeholder: 'Название задачи' },
-    { tag: 'textarea', name: 'description', label: 'Описание', maxLength: 1000, rows: 3, placeholder: 'Описание (необязательно)' },
-    { tag: 'select', name: 'categoryId', label: 'Категория', options: getCategories().map((c) => ({ value: c.id, text: c.name })) },
-    { tag: 'select', name: 'priority', label: 'Приоритет', options: [
-      { value: 'low', text: 'Низкий' },
-      { value: 'medium', text: 'Средний' },
-      { value: 'high', text: 'Высокий' },
-    ]},
-    { tag: 'input', name: 'estimatedHours', type: 'number', label: 'Оценка (часы)', min: 0, max: 24, step: 0.5, placeholder: '0' },
-    { tag: 'input', name: 'date', type: 'date', label: 'Дата' },
-    { tag: 'select', name: 'repetition', label: 'Повторение', options: [
-      { value: 'none', text: 'Нет' },
-      { value: 'daily', text: 'Ежедневно' },
-      { value: 'weekdays', text: 'По дням недели' },
-      { value: 'weekly', text: 'Еженедельно' },
-      { value: 'monthly', text: 'Ежемесячно' },
-    ]},
-  ];
+  const titleInput = document.createElement('input');
+  titleInput.type = 'text';
+  titleInput.name = 'title';
+  titleInput.className = 'form-input form-input-sm';
+  titleInput.placeholder = 'Название задачи...';
+  titleInput.required = true;
+  titleInput.maxLength = 120;
+  form.appendChild(titleInput);
 
-  fields.forEach((f) => {
-    const group = document.createElement('div');
-    group.className = 'form-group';
+  const metaRow = document.createElement('div');
+  metaRow.className = 'form-meta-row';
 
-    const label = document.createElement('label');
-    label.className = 'form-label';
-    label.textContent = f.label;
-    group.appendChild(label);
-
-    let el;
-    if (f.tag === 'select') {
-      el = document.createElement('select');
-      el.name = f.name;
-      el.className = 'form-select';
-      f.options.forEach((o) => {
-        const opt = document.createElement('option');
-        opt.value = o.value;
-        opt.textContent = o.text;
-        el.appendChild(opt);
-      });
-    } else if (f.tag === 'textarea') {
-      el = document.createElement('textarea');
-      el.name = f.name;
-      el.className = 'form-textarea';
-      if (f.rows) el.rows = f.rows;
-      if (f.maxLength) el.maxLength = f.maxLength;
-      if (f.placeholder) el.placeholder = f.placeholder;
-    } else {
-      el = document.createElement('input');
-      el.type = f.type;
-      el.name = f.name;
-      el.className = 'form-input';
-      if (f.required) el.required = true;
-      if (f.maxLength) el.maxLength = f.maxLength;
-      if (f.min !== undefined) el.min = f.min;
-      if (f.max !== undefined) el.max = f.max;
-      if (f.step !== undefined) el.step = f.step;
-      if (f.placeholder) el.placeholder = f.placeholder;
-    }
-
-    group.appendChild(el);
-    form.appendChild(group);
+  const catSelect = document.createElement('select');
+  catSelect.name = 'categoryId';
+  catSelect.className = 'form-select form-select-sm';
+  getCategories().forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name;
+    catSelect.appendChild(opt);
   });
+  catSelect.value = getCategories()[0]?.id || '';
+  metaRow.appendChild(catSelect);
+
+  const prioSelect = document.createElement('select');
+  prioSelect.name = 'priority';
+  prioSelect.className = 'form-select form-select-sm';
+  [
+    { value: 'low', text: 'Низкий' },
+    { value: 'medium', text: 'Средний' },
+    { value: 'high', text: 'Высокий' },
+  ].forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.value;
+    opt.textContent = p.text;
+    prioSelect.appendChild(opt);
+  });
+  prioSelect.value = 'medium';
+  metaRow.appendChild(prioSelect);
+
+  const hoursInput = document.createElement('input');
+  hoursInput.type = 'number';
+  hoursInput.name = 'estimatedHours';
+  hoursInput.className = 'form-input form-input-sm form-input-narrow';
+  hoursInput.placeholder = 'ч';
+  hoursInput.min = 0;
+  hoursInput.max = 24;
+  hoursInput.step = 0.5;
+  metaRow.appendChild(hoursInput);
+
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  dateInput.name = 'date';
+  dateInput.className = 'form-input form-input-sm form-input-narrow';
+  metaRow.appendChild(dateInput);
+
+  const repSelect = document.createElement('select');
+  repSelect.name = 'repetition';
+  repSelect.className = 'form-select form-select-sm form-select-narrow';
+  [
+    { value: 'none', text: 'Нет' },
+    { value: 'daily', text: 'Ежедн' },
+    { value: 'weekdays', text: 'Раб. дни' },
+    { value: 'weekly', text: 'Еженед' },
+    { value: 'monthly', text: 'Ежемес' },
+  ].forEach((r) => {
+    const opt = document.createElement('option');
+    opt.value = r.value;
+    opt.textContent = r.text;
+    repSelect.appendChild(opt);
+  });
+  metaRow.appendChild(repSelect);
+
+  form.appendChild(metaRow);
+
+  const descInput = document.createElement('textarea');
+  descInput.name = 'description';
+  descInput.className = 'form-textarea form-textarea-sm';
+  descInput.placeholder = 'Описание (необязательно)';
+  descInput.maxLength = 1000;
+  descInput.rows = 2;
+  form.appendChild(descInput);
 
   const btnRow = document.createElement('div');
-  btnRow.className = 'form-actions';
+  btnRow.className = 'form-compact-actions';
 
   const submitBtn = document.createElement('button');
   submitBtn.type = 'submit';
-  submitBtn.className = 'btn btn-primary';
-  submitBtn.textContent = 'Добавить задачу';
+  submitBtn.className = 'btn btn-primary btn-sm';
+  submitBtn.textContent = 'Добавить';
   btnRow.appendChild(submitBtn);
 
   const cancelBtn = document.createElement('button');
   cancelBtn.type = 'button';
-  cancelBtn.className = 'btn btn-cancel';
+  cancelBtn.className = 'btn btn-cancel btn-sm';
   cancelBtn.textContent = 'Отмена';
   cancelBtn.style.display = 'none';
   btnRow.appendChild(cancelBtn);
@@ -214,34 +261,20 @@ function renderTaskForm(container) {
     resetForm(form, submitBtn, cancelBtn, errorsEl);
   });
 
-  section.appendChild(form);
-  container.appendChild(section);
+  formWrap.appendChild(form);
+  section.appendChild(formWrap);
 
-  resetForm(form, submitBtn, cancelBtn, errorsEl);
+  toggle.addEventListener('click', () => {
+    const isHidden = formWrap.style.display === 'none';
+    formWrap.style.display = isHidden ? 'block' : 'none';
+    toggle.textContent = isHidden ? '▲ Новая задача' : '✕ Новая задача';
+  });
+
+  container.appendChild(section);
 }
 
 function handleFormSubmit(form, errorsEl, submitBtn, cancelBtn) {
-  const data = collectFormData(form);
-  const errors = validateTask(data);
-
-  if (errors.length > 0) {
-    errorsEl.innerHTML = errors.map((e) => `<div class="error-msg">${e}</div>`).join('');
-    return;
-  }
-  errorsEl.innerHTML = '';
-
-  if (editingTaskId) {
-    updateTask(editingTaskId, data);
-  } else {
-    addTask(data);
-  }
-
-  resetForm(form, submitBtn, cancelBtn, errorsEl);
-  reRenderDynamic();
-}
-
-function collectFormData(form) {
-  return {
+  const data = {
     title: form.title.value,
     description: form.description.value,
     categoryId: form.categoryId.value,
@@ -250,23 +283,31 @@ function collectFormData(form) {
     date: form.date.value,
     repetition: form.repetition.value,
   };
-}
-
-function validateTask(data) {
-  const errs = [];
+  const errors = [];
   if (!data.title || data.title.trim().length === 0) {
-    errs.push('Название не может быть пустым.');
+    errors.push('Название не может быть пустым.');
   } else if (data.title.trim().length > 120) {
-    errs.push('Название не может превышать 120 символов.');
+    errors.push('Название не может превышать 120 символов.');
   }
   if (data.description && data.description.length > 1000) {
-    errs.push('Описание не может превышать 1000 символов.');
+    errors.push('Описание не может превышать 1000 символов.');
   }
-  const hours = Number(data.estimatedHours);
-  if (data.estimatedHours !== '' && (isNaN(hours) || hours < 0 || hours > 24)) {
-    errs.push('Оценка в часах должна быть от 0 до 24.');
+  const hrs = Number(data.estimatedHours);
+  if (data.estimatedHours !== '' && (isNaN(hrs) || hrs < 0 || hrs > 24)) {
+    errors.push('Оценка в часах должна быть от 0 до 24.');
   }
-  return errs;
+  if (errors.length > 0) {
+    errorsEl.innerHTML = errors.map((e) => `<div class="error-msg">${e}</div>`).join('');
+    return;
+  }
+  errorsEl.innerHTML = '';
+  if (editingTaskId) {
+    updateTask(editingTaskId, data);
+  } else {
+    addTask(data);
+  }
+  resetForm(form, submitBtn, cancelBtn, errorsEl);
+  reRenderAll();
 }
 
 function resetForm(form, submitBtn, cancelBtn, errorsEl) {
@@ -280,7 +321,7 @@ function resetForm(form, submitBtn, cancelBtn, errorsEl) {
   form.repetition.value = 'none';
   errorsEl.innerHTML = '';
   editingTaskId = null;
-  submitBtn.textContent = 'Добавить задачу';
+  submitBtn.textContent = 'Добавить';
   cancelBtn.style.display = 'none';
 }
 
@@ -293,32 +334,164 @@ function fillFormForEdit(task) {
   form.estimatedHours.value = task.estimatedHours;
   form.date.value = task.date || '';
   form.repetition.value = task.repetition || 'none';
-
   editingTaskId = task.id;
   const submitBtn = form.querySelector('.btn-primary');
   submitBtn.textContent = 'Сохранить';
   const cancelBtn = form.querySelector('.btn-cancel');
   cancelBtn.style.display = 'inline-block';
   form.querySelector('.form-errors').innerHTML = '';
+  const wrap = form.closest('.sidebar-form-wrap');
+  if (wrap) wrap.style.display = 'block';
+  const toggle = form.closest('.sidebar-form-section')?.querySelector('.sidebar-form-toggle');
+  if (toggle) toggle.textContent = '▲ Новая задача';
 }
 
-/* ── Filter panel ── */
+/* ── Week nav ── */
 
-function renderFilterPanel(container) {
-  const existing = container.querySelector('.filters-panel');
+function renderWeekNav(container) {
+  const nav = document.createElement('div');
+  nav.className = 'week-nav';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'week-nav-btn';
+  prevBtn.textContent = '◀';
+  prevBtn.addEventListener('click', () => {
+    weekOffset--;
+    selectedDayDate = getWeekDates(weekOffset)[0]?.dateStr || todayStr();
+    reRenderAll();
+  });
+  nav.appendChild(prevBtn);
+
+  const label = document.createElement('span');
+  label.className = 'week-nav-label';
+  label.textContent = weekLabel(weekOffset);
+  nav.appendChild(label);
+
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'week-nav-btn';
+  nextBtn.textContent = '▶';
+  nextBtn.addEventListener('click', () => {
+    weekOffset++;
+    selectedDayDate = getWeekDates(weekOffset)[0]?.dateStr || todayStr();
+    reRenderAll();
+  });
+  nav.appendChild(nextBtn);
+
+  container.appendChild(nav);
+}
+
+/* ── Day list ── */
+
+function renderDayList(container) {
+  const section = document.createElement('section');
+  section.className = 'sidebar-days';
+
+  const weekDates = getWeekDates(weekOffset);
+  const today = todayStr();
+  const allTasks = getTasks();
+
+  weekDates.forEach((dayInfo) => {
+    const activeTasks = allTasks.filter((t) => t.date === dayInfo.dateStr && t.status !== 'completed');
+    const hours = totalHours(activeTasks);
+    const card = document.createElement('div');
+    card.className = 'day-card';
+    if (dayInfo.dateStr === selectedDayDate) card.classList.add('day-card-active');
+    if (dayInfo.dateStr === today) card.classList.add('day-card-today');
+
+    const dot = document.createElement('span');
+    dot.className = 'day-card-dot';
+    if (activeTasks.length > 0) dot.style.background = 'var(--accent)';
+    else dot.style.background = 'var(--border)';
+    card.appendChild(dot);
+
+    const info = document.createElement('div');
+    info.className = 'day-card-info';
+    info.innerHTML = `
+      <span class="day-card-name">${dayInfo.dayName.slice(0, 2)}</span>
+      <span class="day-card-date">${dayInfo.shortLabel}</span>
+    `;
+    card.appendChild(info);
+
+    const count = document.createElement('span');
+    count.className = 'day-card-count';
+    count.textContent = activeTasks.length > 0 ? activeTasks.length : '';
+    card.appendChild(count);
+
+    if (hours > 0) {
+      const hrs = document.createElement('span');
+      hrs.className = 'day-card-hours';
+      hrs.textContent = `${hours}ч`;
+      card.appendChild(hrs);
+    }
+
+    card.addEventListener('click', () => {
+      selectedDayDate = dayInfo.dateStr;
+      reRenderAll();
+    });
+
+    section.appendChild(card);
+  });
+
+  const noDateTasks = allTasks.filter((t) => !t.date && t.status !== 'completed');
+  if (noDateTasks.length > 0 || selectedDayDate === '') {
+    const card = document.createElement('div');
+    card.className = 'day-card';
+    if (selectedDayDate === '') card.classList.add('day-card-active');
+
+    const dot = document.createElement('span');
+    dot.className = 'day-card-dot';
+    dot.style.background = noDateTasks.length > 0 ? 'var(--accent)' : 'var(--border)';
+    card.appendChild(dot);
+
+    const info = document.createElement('div');
+    info.className = 'day-card-info';
+    info.innerHTML = `
+      <span class="day-card-name">Без</span>
+      <span class="day-card-date">даты</span>
+    `;
+    card.appendChild(info);
+
+    const count = document.createElement('span');
+    count.className = 'day-card-count';
+    count.textContent = noDateTasks.length > 0 ? noDateTasks.length : '';
+    card.appendChild(count);
+
+    card.addEventListener('click', () => {
+      selectedDayDate = '';
+      reRenderAll();
+    });
+
+    section.appendChild(card);
+  }
+
+  container.appendChild(section);
+}
+
+/* ── Main content ── */
+
+function renderMainContent(container) {
+  const main = document.createElement('main');
+  main.className = 'main-content';
+
+  renderFilterBar(main);
+  renderStatsSection(main);
+  renderOverdueSection(main);
+  renderDayDetail(main);
+
+  container.appendChild(main);
+}
+
+/* ── Filter bar ── */
+
+function renderFilterBar(container) {
+  const existing = container.querySelector('.filter-bar');
   if (existing) existing.remove();
 
-  const panel = document.createElement('div');
-  panel.className = 'filters-panel';
+  const bar = document.createElement('div');
+  bar.className = 'filter-bar';
 
-  const catGroup = document.createElement('div');
-  catGroup.className = 'filter-group';
-  const catLabel = document.createElement('label');
-  catLabel.className = 'filter-label';
-  catLabel.textContent = 'Категория';
   const catSelect = document.createElement('select');
-  catSelect.className = 'form-select filter-select';
-  catSelect.id = 'filter-category';
+  catSelect.className = 'form-select form-select-sm';
   const catAll = document.createElement('option');
   catAll.value = '';
   catAll.textContent = 'Все категории';
@@ -330,21 +503,13 @@ function renderFilterPanel(container) {
     catSelect.appendChild(opt);
   });
   catSelect.value = filterCategory;
-  catGroup.appendChild(catLabel);
-  catGroup.appendChild(catSelect);
-  panel.appendChild(catGroup);
+  bar.appendChild(catSelect);
 
-  const prioGroup = document.createElement('div');
-  prioGroup.className = 'filter-group';
-  const prioLabel = document.createElement('label');
-  prioLabel.className = 'filter-label';
-  prioLabel.textContent = 'Приоритет';
   const prioSelect = document.createElement('select');
-  prioSelect.className = 'form-select filter-select';
-  prioSelect.id = 'filter-priority';
+  prioSelect.className = 'form-select form-select-sm';
   const prioAll = document.createElement('option');
   prioAll.value = '';
-  prioAll.textContent = 'Все';
+  prioAll.textContent = 'Приоритет';
   prioSelect.appendChild(prioAll);
   ['low', 'medium', 'high'].forEach((p) => {
     const opt = document.createElement('option');
@@ -353,52 +518,40 @@ function renderFilterPanel(container) {
     prioSelect.appendChild(opt);
   });
   prioSelect.value = filterPriority;
-  prioGroup.appendChild(prioLabel);
-  prioGroup.appendChild(prioSelect);
-  panel.appendChild(prioGroup);
+  bar.appendChild(prioSelect);
 
-  const overdueGroup = document.createElement('div');
-  overdueGroup.className = 'filter-group filter-checkbox';
+  const overdueLabel = document.createElement('label');
+  overdueLabel.className = 'filter-check-label';
   const overdueCheck = document.createElement('input');
   overdueCheck.type = 'checkbox';
-  overdueCheck.id = 'filter-overdue';
   overdueCheck.checked = filterOverdueOnly;
-  const overdueLabel = document.createElement('label');
-  overdueLabel.className = 'filter-label-check';
-  overdueLabel.htmlFor = 'filter-overdue';
-  overdueLabel.textContent = 'Только просроченные';
-  overdueGroup.appendChild(overdueCheck);
-  overdueGroup.appendChild(overdueLabel);
-  panel.appendChild(overdueGroup);
+  overdueLabel.appendChild(overdueCheck);
+  overdueLabel.appendChild(document.createTextNode(' Просроченные'));
+  bar.appendChild(overdueLabel);
 
-  const hideGroup = document.createElement('div');
-  hideGroup.className = 'filter-group filter-checkbox';
+  const hideLabel = document.createElement('label');
+  hideLabel.className = 'filter-check-label';
   const hideCheck = document.createElement('input');
   hideCheck.type = 'checkbox';
-  hideCheck.id = 'filter-hide-completed';
   hideCheck.checked = filterHideCompleted;
-  const hideLabel = document.createElement('label');
-  hideLabel.className = 'filter-label-check';
-  hideLabel.htmlFor = 'filter-hide-completed';
-  hideLabel.textContent = 'Скрыть завершённые';
-  hideGroup.appendChild(hideCheck);
-  hideGroup.appendChild(hideLabel);
-  panel.appendChild(hideGroup);
+  hideLabel.appendChild(hideCheck);
+  hideLabel.appendChild(document.createTextNode(' Скрыть готовые'));
+  bar.appendChild(hideLabel);
 
-  const onFilterChange = () => {
-    filterCategory = document.getElementById('filter-category').value;
-    filterPriority = document.getElementById('filter-priority').value;
-    filterOverdueOnly = document.getElementById('filter-overdue').checked;
-    filterHideCompleted = document.getElementById('filter-hide-completed').checked;
-    reRenderDynamic();
+  const onChange = () => {
+    filterCategory = catSelect.value;
+    filterPriority = prioSelect.value;
+    filterOverdueOnly = overdueCheck.checked;
+    filterHideCompleted = hideCheck.checked;
+    reRenderAll();
   };
 
-  catSelect.addEventListener('change', onFilterChange);
-  prioSelect.addEventListener('change', onFilterChange);
-  overdueCheck.addEventListener('change', onFilterChange);
-  hideCheck.addEventListener('change', onFilterChange);
+  catSelect.addEventListener('change', onChange);
+  prioSelect.addEventListener('change', onChange);
+  overdueCheck.addEventListener('change', onChange);
+  hideCheck.addEventListener('change', onChange);
 
-  container.appendChild(panel);
+  container.insertBefore(bar, container.firstChild);
 }
 
 /* ── Stats section ── */
@@ -410,38 +563,25 @@ function renderStatsSection(container) {
   const allTasks = getTasks();
   const activeTasks = allTasks.filter((t) => t.status === 'active');
   const completedTasks = allTasks.filter((t) => t.status === 'completed');
-  const totalActive = activeTasks.length;
-  const totalCompleted = completedTasks.length;
-  const totalAll = totalActive + totalCompleted;
-  const pct = totalAll > 0 ? Math.round((totalCompleted / totalAll) * 100) : 0;
+  const totalAll = activeTasks.length + completedTasks.length;
+  const pct = totalAll > 0 ? Math.round((completedTasks.length / totalAll) * 100) : 0;
 
   const section = document.createElement('section');
   section.className = 'stats-section';
-
-  const title = document.createElement('h2');
-  title.className = 'section-title';
-  title.textContent = 'Статистика';
-  section.appendChild(title);
 
   const body = document.createElement('div');
   body.className = 'stats-body';
 
   const pctBlock = document.createElement('div');
-  pctBlock.className = 'stat-block stat-completion';
+  pctBlock.className = 'stat-block';
   pctBlock.innerHTML = `
     <span class="stat-value">${pct}%</span>
     <span class="stat-label">выполнения</span>
-    <span class="stat-sub">${totalCompleted} из ${totalAll} задач</span>
   `;
   body.appendChild(pctBlock);
 
   const catBlock = document.createElement('div');
-  catBlock.className = 'stat-block stat-categories';
-  const catTitle = document.createElement('span');
-  catTitle.className = 'stat-label';
-  catTitle.textContent = 'По категориям';
-  catBlock.appendChild(catTitle);
-
+  catBlock.className = 'stat-block';
   const catList = document.createElement('div');
   catList.className = 'stat-cat-list';
   getCategories().forEach((cat) => {
@@ -460,17 +600,7 @@ function renderStatsSection(container) {
   body.appendChild(catBlock);
 
   section.appendChild(body);
-  container.insertBefore(section, container.querySelector('.overdue-section') || container.querySelector('.week-columns'));
-}
-
-/* ── Re-render helper ── */
-
-function reRenderDynamic() {
-  const grid = document.querySelector('.dashboard-grid');
-  if (!grid) return;
-  renderStatsSection(grid);
-  renderOverdueSection(grid);
-  renderWeekColumns(grid);
+  container.insertBefore(section, container.querySelector('.overdue-section') || container.querySelector('.day-detail'));
 }
 
 /* ── Overdue section ── */
@@ -487,131 +617,143 @@ function renderOverdueSection(container) {
 
   const title = document.createElement('h2');
   title.className = 'section-title overdue-title';
-  title.textContent = `Просроченные задачи (${tasks.length})`;
+  title.textContent = `Просроченные (${tasks.length})`;
   section.appendChild(title);
 
   const list = document.createElement('div');
   list.className = 'overdue-list';
-
   tasks.forEach((task) => {
-    list.appendChild(createTaskCard(task, container));
+    list.appendChild(createTaskCard(task));
   });
-
   section.appendChild(list);
-  container.insertBefore(section, container.querySelector('.week-columns'));
+
+  container.insertBefore(section, container.querySelector('.day-detail'));
 }
 
-/* ── Week columns ── */
+/* ── Day detail ── */
 
-function renderWeekColumns(container) {
-  const existing = container.querySelector('.week-columns');
+function renderDayDetail(container) {
+  const existing = container.querySelector('.day-detail');
   if (existing) existing.remove();
 
   const section = document.createElement('section');
-  section.className = 'week-columns';
+  section.className = 'day-detail';
 
-  const title = document.createElement('h2');
-  title.className = 'section-title';
-  title.textContent = 'Неделя';
-  section.appendChild(title);
-
-  const weeks = document.createElement('div');
-  weeks.className = 'week-grid';
-
-  const weekDates = getWeekDates();
+  const weekDates = getWeekDates(weekOffset);
+  const dayInfo = weekDates.find((d) => d.dateStr === selectedDayDate);
   const today = todayStr();
-  const allTasks = applyFilters(getTasks());
+  const isToday = selectedDayDate === today;
 
-  weekDates.forEach((dayInfo) => {
-    const dayTasks = allTasks.filter((t) => t.date === dayInfo.dateStr && t.status !== 'completed');
-    const isToday = dayInfo.dateStr === today;
-    weeks.appendChild(createDayColumn(dayInfo, dayTasks, isToday, container));
-  });
-
-  const noDateTasks = allTasks.filter((t) => !t.date && t.status !== 'completed');
-  if (noDateTasks.length > 0) {
-    const dayInfo = { dateStr: '', dayName: 'Без даты', shortLabel: '—' };
-    weeks.appendChild(createDayColumn(dayInfo, noDateTasks, false, container));
+  let dayLabel = 'Без даты';
+  let dayFullName = 'Задачи без даты';
+  if (dayInfo) {
+    dayLabel = dayInfo.dayName + ', ' + dayInfo.shortLabel;
+    dayFullName = dayInfo.dayName + ', ' + dayInfo.shortLabel;
   }
 
-  section.appendChild(weeks);
-  container.appendChild(section);
-}
-
-function createDayColumn(dayInfo, tasks, isToday, container) {
-  const col = document.createElement('div');
-  col.className = 'day-column';
-  if (isToday) col.classList.add('day-today');
-
-  const hours = totalHours(tasks);
+  const allTasks = getTasks();
+  let dayTasks;
+  if (selectedDayDate === '') {
+    dayTasks = allTasks.filter((t) => !t.date);
+  } else {
+    dayTasks = allTasks.filter((t) => t.date === selectedDayDate);
+  }
+  dayTasks = applyFilters(dayTasks);
+  const activeDayTasks = dayTasks.filter((t) => t.status !== 'completed');
+  const completedDayTasks = dayTasks.filter((t) => t.status === 'completed');
 
   const header = document.createElement('div');
-  header.className = 'day-header';
-  header.innerHTML = `
-    <span class="day-name">${dayInfo.dayName}</span>
-    <span class="day-date">${dayInfo.shortLabel}</span>
-    ${hours > 0 ? `<span class="day-load">${hours}ч</span>` : ''}
-    <span class="day-count">${tasks.length}</span>
-    <span class="day-toggle">${isToday ? '▼' : '▶'}</span>
-  `;
-  col.appendChild(header);
+  header.className = 'day-detail-header';
+  if (isToday) header.classList.add('day-detail-today');
 
-  if (!isToday) col.classList.add('day-collapsed');
+  const titleSpan = document.createElement('h2');
+  titleSpan.className = 'day-detail-title';
+  titleSpan.textContent = dayFullName;
+  header.appendChild(titleSpan);
 
-  header.addEventListener('click', () => {
-    col.classList.toggle('day-collapsed');
-    const toggle = header.querySelector('.day-toggle');
-    toggle.textContent = col.classList.contains('day-collapsed') ? '▶' : '▼';
-  });
+  if (isToday) {
+    const badge = document.createElement('span');
+    badge.className = 'day-detail-badge';
+    badge.textContent = 'Сегодня';
+    header.appendChild(badge);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'day-detail-meta';
+  const hrs = totalHours(activeDayTasks);
+  if (hrs > 0) {
+    const h = document.createElement('span');
+    h.className = 'day-detail-hours';
+    h.textContent = `${hrs}ч`;
+    meta.appendChild(h);
+  }
+  const cnt = document.createElement('span');
+  cnt.className = 'day-detail-count';
+  cnt.textContent = `${activeDayTasks.length} активных`;
+  meta.appendChild(cnt);
+  if (completedDayTasks.length > 0) {
+    const cmp = document.createElement('span');
+    cmp.className = 'day-detail-completed';
+    cmp.textContent = `${completedDayTasks.length} готовых`;
+    meta.appendChild(cmp);
+  }
+  header.appendChild(meta);
+
+  section.appendChild(header);
 
   const body = document.createElement('div');
-  body.className = 'day-body';
+  body.className = 'day-detail-body';
 
-  if (tasks.length === 0) {
+  if (activeDayTasks.length === 0 && completedDayTasks.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'day-empty';
-    empty.textContent = 'Нет задач';
+    empty.textContent = 'Нет задач на этот день';
     body.appendChild(empty);
   } else {
-    const groups = groupByCategory(tasks);
+    const groups = groupByCategory(activeDayTasks);
     const catMap = {};
     getCategories().forEach((c) => { catMap[c.id] = c; });
 
-    let first = true;
     Object.entries(groups).forEach(([catId, groupTasks]) => {
-      if (!first) {
-        const sep = document.createElement('div');
-        sep.className = 'group-separator';
-        body.appendChild(sep);
+      const cat = catMap[catId];
+      if (cat) {
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'group-header';
+        groupHeader.innerHTML = `
+          <span class="group-dot" style="background:${cat.color}"></span>
+          <span class="group-name">${cat.name}</span>
+          <span class="group-count">${groupTasks.length}</span>
+        `;
+        body.appendChild(groupHeader);
       }
-      first = false;
-
-      if (Object.keys(groups).length > 1 || catId !== 'none') {
-        const cat = catMap[catId];
-        if (cat) {
-          const groupHeader = document.createElement('div');
-          groupHeader.className = 'group-header';
-          groupHeader.innerHTML = `
-            <span class="group-dot" style="background:${cat.color}"></span>
-            <span class="group-name">${cat.name}</span>
-          `;
-          body.appendChild(groupHeader);
-        }
-      }
-
       groupTasks.forEach((task) => {
-        body.appendChild(createTaskCard(task, container));
+        body.appendChild(createTaskCard(task));
       });
     });
+
+    if (completedDayTasks.length > 0) {
+      const sep = document.createElement('div');
+      sep.className = 'group-separator';
+      body.appendChild(sep);
+
+      const doneHeader = document.createElement('div');
+      doneHeader.className = 'group-header';
+      doneHeader.innerHTML = `<span class="group-name">Завершённые</span>`;
+      body.appendChild(doneHeader);
+
+      completedDayTasks.forEach((task) => {
+        body.appendChild(createTaskCard(task));
+      });
+    }
   }
 
-  col.appendChild(body);
-  return col;
+  section.appendChild(body);
+  container.appendChild(section);
 }
 
 /* ── Task card ── */
 
-function createTaskCard(task, container) {
+function createTaskCard(task) {
   const card = document.createElement('div');
   card.className = `task-card task-${task.status}`;
   card.dataset.id = task.id;
@@ -619,7 +761,7 @@ function createTaskCard(task, container) {
   const priorityLabels = { low: 'Низкий', medium: 'Средний', high: 'Высокий' };
   const category = getCategories().find((c) => c.id === task.categoryId);
 
-  const weekDates = getWeekDates();
+  const weekDates = getWeekDates(weekOffset);
   const inWeek = weekDates.some((d) => d.dateStr === task.date);
   let dateOptions = weekDates.map((d) => {
     const sel = d.dateStr === task.date ? 'selected' : '';
@@ -634,7 +776,7 @@ function createTaskCard(task, container) {
   card.innerHTML = `
     <div class="task-header">
       <span class="task-priority priority-${task.priority}">${priorityLabels[task.priority]}</span>
-      <span class="task-status status-${task.status}">${task.status === 'active' ? 'В работе' : 'Завершена'}</span>
+      <span class="task-status status-${task.status}">${task.status === 'active' ? 'В работе' : 'Готова'}</span>
     </div>
     <div class="task-body">
       <h3 class="task-title">${escapeHtml(task.title)}</h3>
@@ -650,14 +792,14 @@ function createTaskCard(task, container) {
     </div>
     <div class="task-actions">
       <button class="btn btn-sm btn-toggle" data-action="toggle">${task.status === 'active' ? 'Завершить' : 'Вернуть'}</button>
-      <button class="btn btn-sm btn-edit" data-action="edit">Редактировать</button>
+      <button class="btn btn-sm btn-edit" data-action="edit">Ред</button>
       <button class="btn btn-sm btn-delete" data-action="delete">Удалить</button>
     </div>
   `;
 
   card.querySelector('[data-action="toggle"]').addEventListener('click', () => {
     toggleTaskStatus(task.id);
-    reRenderDynamic();
+    reRenderAll();
   });
 
   card.querySelector('[data-action="edit"]').addEventListener('click', () => {
@@ -666,49 +808,29 @@ function createTaskCard(task, container) {
 
   card.querySelector('[data-action="delete"]').addEventListener('click', () => {
     deleteTask(task.id);
-    reRenderDynamic();
+    reRenderAll();
   });
 
   const dateSelect = card.querySelector('.task-date-select');
   dateSelect.addEventListener('change', (e) => {
-    const newDate = e.target.value;
-    updateTaskDate(task.id, newDate);
-    reRenderDynamic();
+    updateTaskDate(task.id, e.target.value);
+    reRenderAll();
   });
 
   return card;
 }
 
-/* ── Categories ── */
+/* ── Re-render ── */
 
-function renderCategorySection(container) {
-  const existing = container.querySelector('.categories-section');
-  if (existing) existing.remove();
-
-  const section = document.createElement('section');
-  section.className = 'categories-section';
-
-  const title = document.createElement('h2');
-  title.className = 'section-title';
-  title.textContent = 'Категории';
-  section.appendChild(title);
-
-  const list = document.createElement('div');
-  list.className = 'categories-list';
-
-  const categories = getCategories();
-  categories.forEach((cat) => {
-    const card = document.createElement('div');
-    card.className = 'category-card';
-    card.innerHTML = `
-      <span class="category-dot" style="background:${cat.color}"></span>
-      <span class="category-name">${cat.name}</span>
-    `;
-    list.appendChild(card);
-  });
-
-  section.appendChild(list);
-  container.appendChild(section);
+function reRenderAll() {
+  const app = document.getElementById('app');
+  const content = app.querySelector('.app-content');
+  if (!content) return;
+  const grid = content.querySelector('.dashboard-layout');
+  if (grid) {
+    const parent = grid.parentElement;
+    renderDashboard(parent);
+  }
 }
 
 /* ── Helpers ── */
